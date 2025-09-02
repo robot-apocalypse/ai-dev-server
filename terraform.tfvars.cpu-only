@@ -1,0 +1,38 @@
+# CPU-Only Configuration for light development
+project_id = "development-436501"
+region     = "us-central1"
+zone       = "us-central1-a"
+user_email = "ian@peakscale.solutions"
+
+project_name = "ai-dev"
+environment  = "dev"
+cost_center  = "ai-development"
+
+# CPU-only instance
+machine_type = "n1-standard-8"
+accelerator_type  = ""  # No GPU
+accelerator_count = 1
+
+# Storage
+boot_disk_size_gb = 100
+data_disk_size_gb = 150  # Smaller disk for CPU-only
+
+# Network Security
+no_public_ip = false
+allowed_ip_ranges = ["0.0.0.0/0"]
+
+# Authentication
+code_server_password = "ianiscool"
+
+# Smaller, quantized models for CPU
+ollama_models = [
+  "codestral:22b-q4_0",
+  "llama3.1:8b-q4_0", 
+  "phi3:3.8b",
+  "deepseek-coder:6.7b"
+]
+
+force_destroy_bucket = false
+
+# Cost optimization
+idle_shutdown_timeout = 15  # Auto-shutdown after 15 minutes of idle

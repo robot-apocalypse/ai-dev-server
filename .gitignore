@@ -1,0 +1,49 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+
+# Environment files
+.env
+*.env
+
+# Logs
+*.log
+logs/
+
+# Backups
+backups/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Local configuration overrides
+config.local.json
+settings.local.json
+
+# Node modules (if using Node.js tooling)
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/

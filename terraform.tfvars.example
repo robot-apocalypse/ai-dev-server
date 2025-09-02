@@ -1,0 +1,68 @@
+# Copy this file to terraform.tfvars and customize for your GCP environment
+
+# GCP Project Configuration
+project_id = "development-436501"           # Your GCP Project ID
+region     = "us-central1"                   # GCP region (us-central1, us-west1, etc.)
+zone       = "us-central1-a"                 # Specific zone for the workbench
+
+# User Configuration  
+user_email = "ian@peakscale.solutions"        # Your GCP account email
+
+# Project Settings
+project_name = "ai-dev"                      # Prefix for resource names
+environment  = "dev"                         # Environment tag
+cost_center  = "ai-development"              # Cost center for billing
+
+# Workbench Configuration
+machine_type = "n1-standard-8"               # Instance size (see variables.tf for options)
+
+# For coding AI models, recommended machine types:
+# - n1-standard-8  (8 vCPUs, 30GB RAM) - Good for most coding models
+# - n1-standard-16 (16 vCPUs, 60GB RAM) - Better for larger models
+# - n1-highmem-8   (8 vCPUs, 52GB RAM) - More RAM for model loading
+# - c2-standard-16 (16 vCPUs, 64GB RAM) - High performance CPUs
+
+# GPU Configuration (optional, but recommended for faster inference)
+accelerator_type  = "NVIDIA_TESLA_T4"       # GPU type (empty string for no GPU)
+accelerator_count = 1                       # Number of GPUs
+
+# Popular GPU options for AI development:
+# - "NVIDIA_TESLA_T4"    - Cost-effective, good for inference
+# - "NVIDIA_L4"          - Latest generation, great price/performance  
+# - "NVIDIA_TESLA_V100"  - High-end, excellent for training
+# - ""                   - No GPU (CPU-only)
+
+# Storage Configuration
+boot_disk_size_gb = 100                     # OS disk size
+data_disk_size_gb = 500                     # Additional disk for models/data
+
+# Network Security
+no_public_ip = false                        # Set true to disable public IP
+allowed_ip_ranges = [                       # IP ranges that can access the workbench
+  "0.0.0.0/0"                              # WARNING: Allows all IPs - restrict in production!
+  # Example restricted access:
+  # "203.0.113.0/24",                      # Your office network
+  # "198.51.100.0/24"                      # Your home network
+]
+
+# Authentication
+code_server_password = "ianiscool"  # Password for code-server
+
+# AI Models to Pre-install
+ollama_models = [
+  "codestral:22b",                         # Mistral's code-specialized model
+  "mistral-nemo:12b",                      # Latest Mistral model
+  "llama3.1:8b",                          # Meta's Llama 3.1
+  "deepseek-coder:6.7b"                   # DeepSeek's coding model
+]
+
+# Alternative: smaller models for lower-spec instances
+# ollama_models = [
+#   "codestral:22b-q4_0",                  # Quantized for less memory
+#   "mistral-nemo:12b-q4_0", 
+#   "llama3.1:8b-q4_0",
+#   "phi3:3.8b"                            # Microsoft's efficient model
+# ]
+
+# Storage bucket settings
+force_destroy_bucket = false               # Allow Terraform to destroy bucket with objects

@@ -1,0 +1,38 @@
+# GPU T4 Configuration for moderate AI workloads
+project_id = "development-436501"
+region     = "us-central1"
+zone       = "us-central1-a"
+user_email = "ian@peakscale.solutions"
+
+project_name = "ai-dev"
+environment  = "dev"
+cost_center  = "ai-development"
+
+# T4 GPU instance
+machine_type = "n1-standard-8"
+accelerator_type  = "NVIDIA_TESLA_T4"
+accelerator_count = 1
+
+# Storage
+boot_disk_size_gb = 100
+data_disk_size_gb = 500
+
+# Network Security
+no_public_ip = false
+allowed_ip_ranges = ["0.0.0.0/0"]
+
+# Authentication
+code_server_password = "ianiscool"
+
+# Full models with GPU acceleration
+ollama_models = [
+  "codestral:22b",
+  "mistral-nemo:12b",
+  "llama3.1:8b",
+  "deepseek-coder:6.7b"
+]
+
+force_destroy_bucket = false
+
+# Cost optimization
+idle_shutdown_timeout = 15  # Auto-shutdown after 15 minutes of idle

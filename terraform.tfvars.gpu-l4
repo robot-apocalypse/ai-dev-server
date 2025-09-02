@@ -1,0 +1,39 @@
+# GPU L4 Configuration for high-performance AI workloads
+project_id = "development-436501"
+region     = "us-central1"
+zone       = "us-central1-a"
+user_email = "ian@peakscale.solutions"
+
+project_name = "ai-dev"
+environment  = "dev"
+cost_center  = "ai-development"
+
+# L4 GPU instance (latest gen, best price/performance)
+machine_type = "n1-standard-16"
+accelerator_type  = "NVIDIA_L4"
+accelerator_count = 1
+
+# Storage
+boot_disk_size_gb = 100
+data_disk_size_gb = 750
+
+# Network Security
+no_public_ip = false
+allowed_ip_ranges = ["0.0.0.0/0"]
+
+# Authentication
+code_server_password = "ianiscool"
+
+# Full models + larger models with L4
+ollama_models = [
+  "codestral:22b",
+  "mistral-nemo:12b", 
+  "llama3.1:8b",
+  "llama3.1:70b-q4_0",
+  "deepseek-coder:33b-q4_0"
+]
+
+force_destroy_bucket = false
+
+# Cost optimization
+idle_shutdown_timeout = 15  # Auto-shutdown after 15 minutes of idle

@@ -1,0 +1,35 @@
+# Essential extensions for AI development
+# Install these extensions in code-server for the best experience
+
+# AI & Code Assistance
+Continue.Continue
+
+# Language Support
+ms-python.python
+ms-vscode.vscode-typescript-next
+ms-vscode.vscode-json
+redhat.vscode-yaml
+hashicorp.terraform
+
+# Development Tools
+ms-vscode.vscode-eslint
+esbenp.prettier-vscode
+ms-vscode.vscode-docker
+ms-kubernetes-tools.vscode-kubernetes-tools
+
+# Git & Version Control
+eamodio.gitlens
+github.vscode-pull-request-github
+
+# Productivity
+ms-vscode.vscode-todo-highlight
+wayou.vscode-todo-highlight
+gruntfuggly.todo-tree
+
+# Themes & Icons
+pkief.material-icon-theme
+zhuangtongfa.material-theme
+
+# Remote Development
+ms-vscode-remote.remote-containers
+ms-vscode-remote.remote-ssh

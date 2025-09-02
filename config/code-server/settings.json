@@ -1,0 +1,28 @@
+{
+  "workbench.colorTheme": "Default Dark+",
+  "workbench.startupEditor": "welcomePage",
+  "editor.fontSize": 14,
+  "editor.fontFamily": "'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace",
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.wordWrap": "on",
+  "editor.minimap.enabled": true,
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": "active",
+  "editor.formatOnSave": true,
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "terminal.integrated.shell.linux": "/bin/bash",
+  "git.enableSmartCommit": true,
+  "git.confirmSync": false,
+  "extensions.autoUpdate": true,
+  "workbench.iconTheme": "vs-seti",
+  "editor.semanticHighlighting.enabled": true,
+  "editor.inlineSuggest.enabled": true,
+  "github.copilot.enable": {
+    "*": true,
+    "yaml": false,
+    "plaintext": false,
+    "markdown": true
+  }
+}
