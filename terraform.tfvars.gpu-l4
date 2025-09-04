@@ -9,13 +9,13 @@ environment  = "dev"
 cost_center  = "ai-development"
 
 # L4 GPU instance (latest gen, best price/performance)
-machine_type = "n1-standard-16"
-accelerator_type  = "NVIDIA_L4"
+machine_type = "g2-standard-16"
+accelerator_type  = "projects/development-436501/zones/us-central1-a/acceleratorTypes/nvidia-l4"
 accelerator_count = 1
 
 # Storage
-boot_disk_size_gb = 100
-data_disk_size_gb = 750
+boot_disk_size_gb = 150
+data_disk_size_gb = 550
 
 # Network Security
 no_public_ip = false

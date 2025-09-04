@@ -1,0 +1,6 @@
+bind-addr: 0.0.0.0:8080
+auth: password
+password: ianiscool
+cert: false
+disable-telemetry: true
+disable-update-check: true

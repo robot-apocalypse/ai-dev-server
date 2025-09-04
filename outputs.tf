@@ -1,165 +1,132 @@
-# Workbench Instance Outputs
-output "workbench_name" {
-  description = "Name of the Vertex AI Workbench instance"
-  value       = google_workbench_instance.ai_workbench.name
+# --- Core Instance Outputs ---
+
+output "instance_name" {
+  description = "Name of the GCE instance."
+  value       = google_compute_instance.ai_instance.name
 }
 
-output "workbench_proxy_uri" {
-  description = "Proxy URI to access the workbench (JupyterLab)"
-  value       = google_workbench_instance.ai_workbench.proxy_uri
+output "instance_service_account" {
+  description = "Service account used by the instance."
+  value       = google_compute_instance.ai_instance.service_account[0].email
 }
 
-output "workbench_instance_owners" {
-  description = "Instance owners with access to the workbench"
-  value       = google_workbench_instance.ai_workbench.instance_owners
+output "project_id" {
+  description = "The GCP project ID."
+  value       = var.project_id
 }
 
-output "workbench_service_account" {
-  description = "Service account used by the workbench"
-  value       = google_workbench_instance.ai_workbench.gce_setup[0].service_accounts[0].email
+output "zone" {
+  description = "The GCP zone of the instance."
+  value       = var.zone
 }
 
-# Network Outputs
-output "workbench_network" {
-  description = "Network used by the workbench"
+# --- Network Outputs ---
+
+output "network_name" {
+  description = "Network used by the instance."
   value       = google_compute_network.ai_network.name
 }
 
-output "workbench_subnet" {
-  description = "Subnet used by the workbench"
+output "subnet_name" {
+  description = "Subnet used by the instance."
   value       = google_compute_subnetwork.ai_subnet.name
 }
 
-# Access Information
+# --- Access Information ---
+
 output "code_server_url" {
-  description = "URL to access code-server (via SSH tunnel or proxy)"
-  value       = "http://localhost:8080 (requires SSH tunnel to workbench)"
+  description = "URL to access code-server (via SSH tunnel)."
+  value       = "http://localhost:3000"
 }
 
 output "ollama_api_url" {
-  description = "URL for Ollama API (via SSH tunnel or proxy)"
-  value       = "http://localhost:11434 (requires SSH tunnel to workbench)"
+  description = "URL for Ollama API (via SSH tunnel)."
+  value       = "http://localhost:11434"
 }
 
-output "jupyter_url" {
-  description = "Direct JupyterLab URL"
-  value       = google_workbench_instance.ai_workbench.proxy_uri
-}
+# --- SSH Connection Information ---
 
-# SSH Connection Information
 output "ssh_command" {
-  description = "SSH command to connect to the workbench"
-  value       = "gcloud compute ssh --zone=${var.zone} --project=${var.project_id} ${google_workbench_instance.ai_workbench.name}"
+  description = "SSH command to connect to the instance."
+  value       = local.ssh_command
 }
 
 output "ssh_tunnel_command" {
-  description = "SSH tunnel command for local development"
-  value       = "gcloud compute ssh --zone=${var.zone} --project=${var.project_id} ${google_workbench_instance.ai_workbench.name} -- -L 8080:localhost:8080 -L 11434:localhost:11434 -N"
+  description = "SSH tunnel command for local development."
+  value       = local.ssh_tunnel_command
 }
 
-# Storage Outputs
+# --- Storage Outputs ---
+
 output "model_storage_bucket" {
-  description = "Cloud Storage bucket for model storage"
+  description = "Cloud Storage bucket for model storage."
   value       = google_storage_bucket.model_storage.name
 }
 
-output "model_storage_url" {
-  description = "Cloud Storage bucket URL"
-  value       = google_storage_bucket.model_storage.url
-}
+# --- Continue.dev Configuration ---
 
-# Continue.dev Configuration
 output "continue_config_local" {
-  description = "Configuration for Continue.dev when using SSH tunnel"
+  description = "Configuration for Continue.dev when using SSH tunnel."
+  sensitive   = true
   value = jsonencode({
     models = [
-      {
-        title    = "Codestral (Ollama)"
+      for model in var.ollama_models : {
+        title    = "Ollama (${model})"
         provider = "ollama"
-        model    = "codestral:22b"
-        apiBase  = "http://localhost:11434"
-      },
-      {
-        title    = "Mistral Nemo (Ollama)"
-        provider = "ollama"  
-        model    = "mistral-nemo:12b"
-        apiBase  = "http://localhost:11434"
-      },
-      {
-        title    = "Llama 3.1 (Ollama)"
-        provider = "ollama"
-        model    = "llama3.1:8b"
-        apiBase  = "http://localhost:11434"
-      },
-      {
-        title    = "DeepSeek Coder (Ollama)"
-        provider = "ollama"
-        model    = "deepseek-coder:6.7b"
+        model    = model
         apiBase  = "http://localhost:11434"
       }
     ]
   })
 }
 
-output "continue_config_workbench" {
-  description = "Configuration for Continue.dev when running on the workbench"
-  value = jsonencode({
-    models = [
-      {
-        title    = "Codestral (Ollama)"
-        provider = "ollama"
-        model    = "codestral:22b"
-        apiBase  = "http://localhost:11434"
-      },
-      {
-        title    = "Mistral Nemo (Ollama)"
-        provider = "ollama"
-        model    = "mistral-nemo:12b"
-        apiBase  = "http://localhost:11434"
-      }
-    ]
-  })
-}
+# --- Instance Configuration Information ---
 
-# Instance Information
 output "machine_type" {
-  description = "Machine type of the workbench instance"
+  description = "Machine type of the instance."
   value       = var.machine_type
 }
 
 output "accelerator_config" {
-  description = "GPU configuration"
-  value = var.accelerator_type != "" ? "${var.accelerator_type} (${var.accelerator_count})" : "No GPU configured"
+  description = "GPU configuration."
+  # Improved logic to handle built-in GPUs for g2 instances
+  value       = substr(var.machine_type, 0, 2) == "g2" ? "NVIDIA L4 (included with g2 instance)" : (var.accelerator_type != "" ? "${var.accelerator_type} (${var.accelerator_count})" : "No GPU configured")
 }
 
-# Setup Instructions
+# --- Setup Instructions ---
+
 output "setup_instructions" {
-  description = "Next steps to access your AI development environment"
+  description = "Next steps to access your AI development environment."
   value = <<-EOT
-    🚀 Your AI Development Workbench is ready!
+    🚀 Your AI Development VM is ready!
     
     📋 Access Methods:
     
-    1. JupyterLab (Direct): ${google_workbench_instance.ai_workbench.proxy_uri}
-    
-    2. SSH Tunnel (Recommended for VS Code + Continue.dev):
-       gcloud compute ssh --zone=${var.zone} --project=${var.project_id} ${google_workbench_instance.ai_workbench.name} -- -L 8080:localhost:8080 -L 11434:localhost:11434 -N
+    1. SSH Tunnel (Recommended for VS Code + Continue.dev):
+       ${local.ssh_tunnel_command}
        
        Then access:
-       - code-server: http://localhost:8080
-       - Ollama API: http://localhost:11434
+       - code-server: http://localhost:3000
+       - Ollama API:  http://localhost:11434
     
-    3. SSH Direct Access:
-       gcloud compute ssh --zone=${var.zone} --project=${var.project_id} ${google_workbench_instance.ai_workbench.name}
+    2. SSH Direct Access:
+       ${local.ssh_command}
     
     🔧 Continue.dev Setup:
-    - Use the configuration from 'continue_config_local' output
-    - Install Continue extension in VS Code
-    - Configure with Ollama endpoint: http://localhost:11434
+    - Run 'make continue-config' to get the JSON config.
+    - Install Continue extension in VS Code.
     
-    🤖 Pre-installed Models:
+    🤖 Models to be installed by startup script:
     ${jsonencode(var.ollama_models)}
     
-    ⚠️  Note: Allow 5-10 minutes for initial setup to complete.
+    ⚠️  Note: Allow 5-10 minutes for the startup script to complete.
+        Check progress with 'make logs' or 'make setup-status'.
   EOT
+}
+
+# --- Locals for cleaner code ---
+locals {
+  # Updated to reference the new instance name
+  ssh_command        = "gcloud compute ssh --zone=${var.zone} --project=${var.project_id} ${google_compute_instance.ai_instance.name}"
+  ssh_tunnel_command = "gcloud compute ssh --zone=${var.zone} --project=${var.project_id} ${google_compute_instance.ai_instance.name} -- -N -L 3000:localhost:3000 -L 11434:localhost:11434"
 }

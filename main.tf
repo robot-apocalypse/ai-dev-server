@@ -30,152 +30,135 @@ resource "google_project_service" "compute" {
   disable_on_destroy = false
 }
 
-resource "google_project_service" "notebooks" {
-  service            = "notebooks.googleapis.com"
-  disable_on_destroy = false
-  depends_on         = [google_project_service.compute]
-}
-
 resource "google_project_service" "aiplatform" {
   service            = "aiplatform.googleapis.com"
   disable_on_destroy = false
   depends_on         = [google_project_service.compute]
 }
 
-# Create VPC network for the workbench
+# Create VPC network
 resource "google_compute_network" "ai_network" {
   name                    = "${var.project_name}-network"
   auto_create_subnetworks = false
-  depends_on             = [google_project_service.compute]
+  depends_on              = [google_project_service.compute]
 }
 
 resource "google_compute_subnetwork" "ai_subnet" {
-  name          = "${var.project_name}-subnet"
-  ip_cidr_range = "10.0.0.0/24"
-  region        = var.region
-  network       = google_compute_network.ai_network.id
+  name                     = "${var.project_name}-subnet"
+  ip_cidr_range            = "10.0.0.0/24"
+  region                   = var.region
+  network                  = google_compute_network.ai_network.id
+  private_ip_google_access = true
 }
 
-# Firewall rules for workbench access
-resource "google_compute_firewall" "allow_workbench" {
-  name    = "${var.project_name}-allow-workbench"
-  network = google_compute_network.ai_network.name
+# Firewall rule to allow SSH via Google's IAP
+resource "google_compute_firewall" "allow_iap_ssh" {
+  name          = "${var.project_name}-allow-iap-ssh"
+  network       = google_compute_network.ai_network.name
+  source_ranges = ["35.235.240.0/20"] # Google's IAP IP range
 
   allow {
     protocol = "tcp"
-    ports    = ["8080", "8888", "11434", "22", "443", "80"]
+    ports    = ["22"]
   }
 
-  source_ranges = var.allowed_ip_ranges
-  target_tags   = ["ai-workbench"]
+  target_tags = ["ai-dev-instance"]
 }
 
-# Service account for the workbench instance
-resource "google_service_account" "workbench_sa" {
-  account_id   = "${var.project_name}-workbench-sa"
-  display_name = "AI Workbench Service Account"
-  description  = "Service account for AI development workbench"
+# Service account for the instance
+resource "google_service_account" "instance_sa" {
+  account_id   = "${var.project_name}-instance-sa"
+  display_name = "AI Development Instance Service Account"
+  description  = "Service account for AI development GCE instance"
 }
 
 # IAM roles for the service account
-resource "google_project_iam_member" "workbench_compute_admin" {
+resource "google_project_iam_member" "instance_compute_admin" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
-  member  = "serviceAccount:${google_service_account.workbench_sa.email}"
+  member  = "serviceAccount:${google_service_account.instance_sa.email}"
 }
 
-resource "google_project_iam_member" "workbench_storage_admin" {
+resource "google_project_iam_member" "instance_storage_admin" {
   project = var.project_id
   role    = "roles/storage.admin"
-  member  = "serviceAccount:${google_service_account.workbench_sa.email}"
+  member  = "serviceAccount:${google_service_account.instance_sa.email}"
 }
 
-resource "google_project_iam_member" "workbench_ai_platform" {
+resource "google_project_iam_member" "instance_logging" {
   project = var.project_id
-  role    = "roles/aiplatform.user"
-  member  = "serviceAccount:${google_service_account.workbench_sa.email}"
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.instance_sa.email}"
 }
 
-resource "google_service_account_iam_member" "workbench_permissions" {
-  service_account_id = google_service_account.workbench_sa.name
+resource "google_project_iam_member" "instance_monitoring" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.instance_sa.email}"
+}
+
+resource "google_service_account_iam_member" "instance_sa_user" {
+  service_account_id = google_service_account.instance_sa.name
   role               = "roles/iam.serviceAccountUser"
   member             = "user:${var.user_email}"
 }
 
-# Vertex AI Workbench Instance (new format)
-resource "google_workbench_instance" "ai_workbench" {
-  name     = "${var.project_name}-workbench"
-  location = var.zone
+# GCE Instance Resource
+resource "google_compute_instance" "ai_instance" {
+  name         = "${var.project_name}-instance"
+  zone         = var.zone
+  machine_type = var.machine_type
+  tags         = ["ai-dev-instance"]
 
-  # Machine configuration
-  gce_setup {
-    machine_type = var.machine_type
-
-    # Boot disk configuration
-    boot_disk {
-      disk_type    = "PD_SSD"
-      disk_size_gb = var.boot_disk_size_gb
-    }
-
-    # Additional data disk for models and data
-    data_disks {
-      disk_type    = "PD_SSD"
-      disk_size_gb = var.data_disk_size_gb
-    }
-
-    # Network configuration
-    network_interfaces {
-      network  = google_compute_network.ai_network.id
-      subnet   = google_compute_subnetwork.ai_subnet.id
-      nic_type = "GVNIC"
-    }
-
-    # Enable external IP access (can be disabled for security)
-    disable_public_ip = var.no_public_ip
-
-    # VM image configuration
-    vm_image {
-      project = var.workbench_image_project
-      family  = var.workbench_image_family
-    }
-
-    # GPU configuration for AI workloads
-    dynamic "accelerator_configs" {
-      for_each = var.accelerator_type != "" ? [1] : []
-      content {
-        type       = var.accelerator_type
-        core_count = var.accelerator_count
-      }
-    }
-
-    # Service account with necessary permissions
-    service_accounts {
-      email = google_service_account.workbench_sa.email
-    }
-
-    # Startup script to install Ollama, code-server, and models
-    metadata = {
-      "enable-oslogin" = "TRUE"
-      "startup-script" = templatefile("${path.module}/scripts/startup.sh", {
-        project_name         = var.project_name
-        ollama_models        = jsonencode(var.ollama_models)
-        code_server_password = var.code_server_password
-        user_email          = var.user_email
-      })
-    }
-
-    # Network tags for firewall rules
-    tags = ["ai-workbench"]
-
-    # Shielded VM configuration
-    shielded_instance_config {
-      enable_secure_boot          = false
-      enable_vtpm                 = false
-      enable_integrity_monitoring = false
+  boot_disk {
+    initialize_params {
+      image = "projects/ml-images/global/images/c0-deeplearning-common-cu113-v20241118-debian-11"
+      size  = var.boot_disk_size_gb
+      type  = "pd-ssd"
     }
   }
 
-  # Labels for organization
+  attached_disk {
+    source      = google_compute_disk.data_disk.name
+    device_name = "data-disk"
+  }
+
+  # NOTE: The guest_accelerator block is removed because the g2-standard machine family
+  # includes the L4 GPU by default and will error if you try to attach it again.
+
+  scheduling {
+    on_host_maintenance = "TERMINATE"
+  }
+
+  network_interface {
+    network    = google_compute_network.ai_network.id
+    subnetwork = google_compute_subnetwork.ai_subnet.id
+    # No access_config block means no public IP, which is more secure.
+  }
+
+  service_account {
+    email  = google_service_account.instance_sa.email
+    scopes = ["cloud-platform"]
+  }
+
+  metadata = {
+    "enable-oslogin"      = "TRUE"
+    "install-gpu-driver"  = "True"
+    "startup-script"      = templatefile("${path.module}/scripts/startup.sh", {
+      user_email              = var.user_email
+      ollama_models           = jsonencode(var.ollama_models)
+      idle_shutdown_timeout   = var.idle_shutdown_timeout * 60,
+
+      # Render the compose file first, injecting the password directly into it
+      docker_compose_content = templatefile("${path.module}/docker/docker-compose.yml", {
+        password_placeholder = var.code_server_password
+      }),
+
+      # Pass the static code-server config content
+      code_server_config_content = file("${path.module}/docker/config/code-server/config.yaml")
+    })
+  }
+
   labels = {
     environment = var.environment
     purpose     = "ai-development"
@@ -183,33 +166,24 @@ resource "google_workbench_instance" "ai_workbench" {
     cost-center = var.cost_center
   }
 
-  # Instance owners
-  instance_owners = [var.user_email]
-
-  # Lifecycle management
-  lifecycle {
-    ignore_changes = [
-      state,
-      health_state,
-      update_time
-    ]
-  }
-
   depends_on = [
-    google_project_service.notebooks,
     google_project_service.aiplatform,
-    google_service_account_iam_member.workbench_permissions
+    google_service_account_iam_member.instance_sa_user
   ]
+}
 
-  # Add timeout for provisioning
-  timeouts {
-    create = "30m"
-    update = "20m"
-    delete = "20m"
+# Data disk for models and persistent storage
+resource "google_compute_disk" "data_disk" {
+  name   = "${var.project_name}-instance-data"
+  type   = "pd-ssd"
+  zone   = var.zone
+  size   = var.data_disk_size_gb
+  labels = {
+    environment = var.environment
   }
 }
 
-# Create a Cloud Storage bucket for model storage and backups
+# Cloud Storage bucket for backups
 resource "google_storage_bucket" "model_storage" {
   name          = "${var.project_id}-${var.project_name}-models"
   location      = var.region
@@ -222,11 +196,11 @@ resource "google_storage_bucket" "model_storage" {
   }
 
   lifecycle_rule {
-    condition {
-      age = 30
-    }
     action {
       type = "Delete"
+    }
+    condition {
+      age = 30
     }
   }
 
@@ -234,5 +208,32 @@ resource "google_storage_bucket" "model_storage" {
     environment = var.environment
     purpose     = "ai-models"
     managed-by  = "terraform"
+  }
+}
+
+# --- NAT Gateway for Outbound Internet Access ---
+
+resource "google_compute_router" "router" {
+  name    = "${var.project_name}-router"
+  network = google_compute_network.ai_network.id
+  region  = var.region
+}
+
+resource "google_compute_router_nat" "nat" {
+  name                               = "${var.project_name}-nat-gateway"
+  router                             = google_compute_router.router.name
+  region                             = google_compute_router.router.region
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+
+  nat_ip_allocate_option             = "AUTO_ONLY"
+
+  subnetwork {
+    name                    = google_compute_subnetwork.ai_subnet.id
+    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
+
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
   }
 }

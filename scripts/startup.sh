@@ -1,489 +1,153 @@
 #!/bin/bash
 set -euo pipefail
 
-# Handle undefined variables gracefully
-set +u
+echo "🚀 Starting AI Development Server setup..."
 
-# Vertex AI Workbench Startup Script
-# This script sets up Ollama, code-server, and AI models on a GCP workbench instance
+# --- 1. Mount Data Disk ---
+# Note: Shell variables are escaped with $$ so Terraform's templatefile() ignores them.
+DATA_DISK_DEVICE_ID="google-data-disk"
+DATA_DISK_DEVICE_PATH="/dev/disk/by-id/$${DATA_DISK_DEVICE_ID}"
+MOUNT_POINT="/home/jupyter"
 
-LOG_FILE="/var/log/ai-workbench-setup.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+echo ">>> Checking for data disk at $${DATA_DISK_DEVICE_PATH}..."
 
-echo "🚀 Starting AI Workbench setup at $(date)"
-echo "📋 Project: ${project_name}"
-echo "👤 User: ${user_email}"
-
-# Function to log with timestamp
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-# Function to check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Wait for any automatic package updates to complete
-log "⏳ Waiting for automatic package updates to complete..."
-while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-    log "   Waiting for package manager lock to be released..."
-    sleep 10
+while [ ! -e "$${DATA_DISK_DEVICE_PATH}" ]; do
+  echo "Waiting for data disk to appear..."
+  sleep 5
 done
+echo "Data disk found."
 
-# Update system packages
-log "📦 Updating system packages..."
-export DEBIAN_FRONTEND=noninteractive
-# Kill any stuck package processes
-sudo killall apt apt-get dpkg >/dev/null 2>&1 || true
-# Clean up any lock files
-sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock >/dev/null 2>&1 || true
-# Configure any interrupted packages
-sudo dpkg --configure -a >/dev/null 2>&1 || true
-# Now safely update
-apt-get update -q
-apt-get upgrade -yq
-
-# Install essential tools
-log "🔧 Installing essential tools..."
-# Wait again before installing packages
-while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-    log "   Waiting for package manager before installing tools..."
-    sleep 5
-done
-
-apt-get install -yq \
-    curl \
-    wget \
-    git \
-    htop \
-    vim \
-    nano \
-    tmux \
-    screen \
-    jq \
-    unzip \
-    build-essential \
-    python3-pip \
-    nodejs \
-    npm \
-    docker.io \
-    nvidia-container-toolkit
-
-# Start and enable Docker
-log "🐳 Setting up Docker..."
-systemctl start docker
-systemctl enable docker
-usermod -aG docker jupyter
-# Note: $USER is not available in startup script context
-if [ -n "$${USER:-}" ]; then
-    usermod -aG docker $$USER
-fi
-
-# Configure NVIDIA Container Runtime (if GPU is present)
-if lspci | grep -i nvidia > /dev/null; then
-    log "🎮 Configuring NVIDIA Container Runtime..."
-    nvidia-ctk runtime configure --runtime=docker
-    systemctl restart docker
-fi
-
-# Install Ollama
-log "🤖 Installing Ollama..."
-if ! command_exists ollama; then
-    log "   Downloading Ollama installer..."
-    # Retry download up to 3 times on failure
-    for attempt in 1 2 3; do
-        log "   Attempt $attempt/3 to install Ollama..."
-        if curl -fsSL https://ollama.com/install.sh | sh; then
-            log "✅ Ollama installed successfully"
-            break
-        else
-            log "⚠️ Ollama installation attempt $attempt failed"
-            if [ $attempt -eq 3 ]; then
-                log "❌ All Ollama installation attempts failed"
-                exit 1
-            fi
-            log "   Waiting 30 seconds before retry..."
-            sleep 30
-        fi
-    done
-    
-    # Create systemd service for Ollama
-    cat << 'EOF' > /etc/systemd/system/ollama.service
-[Unit]
-Description=Ollama Service
-After=network-online.target
-
-[Service]
-ExecStart=/usr/local/bin/ollama serve
-User=jupyter
-Group=jupyter
-Restart=always
-RestartSec=3
-Environment="OLLAMA_HOST=0.0.0.0"
-Environment="OLLAMA_ORIGINS=*"
-
-[Install]
-WantedBy=default.target
-EOF
-    
-    systemctl daemon-reload
-    systemctl enable ollama
-    systemctl start ollama
+if ! blkid "$${DATA_DISK_DEVICE_PATH}"; then
+  echo ">>> Formatting data disk..."
+  mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$${DATA_DISK_DEVICE_PATH}"
 else
-    log "✅ Ollama already installed"
+  echo ">>> Data disk is already formatted."
 fi
 
-# Wait for Ollama to be ready
-log "⏳ Waiting for Ollama to be ready..."
-timeout=60
-while ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do
-    if [ $timeout -eq 0 ]; then
-        log "❌ Timeout waiting for Ollama to start"
-        exit 1
-    fi
-    sleep 2
-    ((timeout--))
-done
-log "✅ Ollama is ready"
+echo ">>> Mounting data disk to $${MOUNT_POINT}..."
+mkdir -p "$${MOUNT_POINT}"
 
-# Install AI models
-log "📥 Installing AI models..."
-models='${ollama_models}'
-echo "$models" | jq -r '.[]' | while read -r model; do
-    log "🔄 Pulling model: $model"
-    sudo -u jupyter /usr/local/bin/ollama pull "$model" || log "⚠️  Failed to pull $model"
-done
+# CORRECTED: Only mount the disk if it's not already mounted to the target.
+if ! grep -qs "$${MOUNT_POINT} " /proc/mounts; then
+  mount -o discard,defaults "$${DATA_DISK_DEVICE_PATH}" "$${MOUNT_POINT}"
+  echo "Mount successful."
+else
+  echo "Data disk is already mounted."
+fi
 
-# Install code-server
-log "💻 Installing code-server..."
-if ! command_exists code-server; then
-    # Wait for package manager to be free
-    while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-        log "   Waiting for package manager before installing code-server..."
-        sleep 5
-    done
+chmod a+w "$${MOUNT_POINT}"
+
+if ! grep -q "$${DATA_DISK_DEVICE_PATH}" /etc/fstab; then
+  echo ">>> Adding data disk to /etc/fstab for auto-mounting..."
+  echo "$${DATA_DISK_DEVICE_PATH} $${MOUNT_POINT} ext4 discard,defaults,nofail 0 2" >> /etc/fstab
+else
+  echo ">>> Data disk already in /etc/fstab."
+fi
+echo "✅ Data disk mounted."
+
+echo ">>> Creating source directories for Docker bind mounts..."
+mkdir -p /home/jupyter/ollama
+mkdir -p /home/jupyter/code-server
+
+echo ">>> Checking for NVIDIA driver..."
+# Check if nvidia-smi is available. If not, the driver needs to be installed.
+if ! command -v nvidia-smi &> /dev/null; then
+  echo "NVIDIA driver not found. Running the non-interactive installer..."
+  # This script is included in the VM image and handles the installation.
+  # It automatically runs non-interactively when called from another script.
+  /opt/deeplearning/install-driver.sh
+  echo "✅ NVIDIA driver installed."
+else
+  echo "✅ NVIDIA driver already present. Skipping installation."
+fi
+# --- END OF NEW BLOCK ---
+
+# --- 3. Configure Docker Permissions ---
+echo ">>> Configuring Docker permissions..."
+# This variable is from Terraform, so it is NOT escaped.
+USER_EMAIL="${user_email}"
+OS_USER=$(echo "$${USER_EMAIL}" | tr '@.' '__')
+usermod -aG docker "$${OS_USER}"
+echo "✅ User $${OS_USER} added to the docker group."
+
+# --- 4. Install Docker Compose v2 ---
+echo ">>> Installing Docker Compose v2 plugin..."
+COMPOSE_VERSION="v2.27.0"
+DOCKER_CONFIG_PATH="/usr/local/lib/docker/cli-plugins"
+mkdir -p "$${DOCKER_CONFIG_PATH}"
+curl -SL "https://github.com/docker/compose/releases/download/$${COMPOSE_VERSION}/docker-compose-linux-x86_64" -o "$${DOCKER_CONFIG_PATH}/docker-compose"
+chmod +x "$${DOCKER_CONFIG_PATH}/docker-compose"
+echo "✅ Docker Compose installed."
+
+echo ">>> Installing Google Cloud Ops Agent for monitoring..."
+# Check if the agent is already installed to make this script safe to re-run.
+if ! command -v google-cloud-ops-agent &> /dev/null; then
+  # The '--quiet' flag suppresses the normal output but will still show errors if it fails.
+  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  bash add-google-cloud-ops-agent-repo.sh --also-install --quiet
+  echo "✅ Ops Agent installed."
+else
+  echo "✅ Ops Agent already present. Skipping installation."
+fi
+
+# --- 5. Deploy Docker Compose Application ---
+APP_DIR="/opt/ai-dev-server"
+echo ">>> Deploying Docker Compose stack to $${APP_DIR}..."
+mkdir -p "$${APP_DIR}"
+chown -R "$${OS_USER}":"$${OS_USER}" "$${APP_DIR}"
+# Create the docker-compose.yml. The password is now baked directly into this content by Terraform.
+cat <<EOF > "$${APP_DIR}/docker-compose.yml"
+${docker_compose_content}
+EOF
+
+# Create the code-server config.yaml from content passed by Terraform
+cat <<EOF > "$${APP_DIR}/code-server-config.yaml"
+${code_server_config_content}
+EOF
+
+# The .env file is no longer needed.
+
+# Go to the app directory and start the services.
+cd "$${APP_DIR}"
+docker compose up -d
+echo "✅ Docker Compose services started."
+
+# --- 6. Initial Ollama Model Pull ---
+echo ">>> Starting initial Ollama model downloads..."
+# This variable is from Terraform, so it is NOT escaped.
+MODELS_JSON='${ollama_models}'
+echo "$${MODELS_JSON}" | jq -r '.[]' | while read model; do
+    (docker exec ollama ollama pull "$model") &
+done
+echo "✅ Model downloads initiated in the background."
+
+# --- 7. Start Idle Shutdown Monitor ---
+# This variable is from Terraform, so it is NOT escaped.
+IDLE_TIMEOUT_SECONDS="${idle_shutdown_timeout}"
+(
+  IDLE_COUNTER=0
+  CHECK_INTERVAL=300
+
+  while true; do
+    GPU_UTILIZATION=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -n 1 || echo 0)
+    ACTIVE_SESSIONS=$(who | wc -l)
     
-    # Set HOME for the installation script
-    export HOME=/root
-    log "   Downloading and installing code-server..."
-    curl -fsSL https://code-server.dev/install.sh | sh
-    
-    # Verify installation
-    if command_exists code-server; then
-        log "✅ code-server installed successfully"
+    if (( $(echo "$GPU_UTILIZATION < 5" | bc -l) )) && (( ACTIVE_SESSIONS == 0 )); then
+      ((IDLE_COUNTER+=CHECK_INTERVAL))
     else
-        log "❌ code-server installation failed"
-        exit 1
+      IDLE_COUNTER=0
     fi
-else
-    log "✅ code-server already installed"
-fi
 
-# Configure code-server
-log "🔧 Configuring code-server..."
-sudo -u jupyter mkdir -p /home/jupyter/.config/code-server
-sudo -u jupyter cat << EOF > /home/jupyter/.config/code-server/config.yaml
-bind-addr: 0.0.0.0:8080
-auth: password
-password: ${code_server_password}
-cert: false
-EOF
-
-# Create code-server systemd service
-log "🔧 Creating code-server systemd service..."
-cat << 'EOF' > /etc/systemd/system/code-server.service
-[Unit]
-Description=code-server
-After=network.target
-
-[Service]
-Type=exec
-ExecStart=/usr/bin/code-server --config /home/jupyter/.config/code-server/config.yaml /home/jupyter
-Restart=always
-User=jupyter
-Group=jupyter
-Environment=HOME=/home/jupyter
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-log "🔧 Starting code-server service..."
-systemctl daemon-reload
-systemctl enable code-server
-systemctl start code-server
-
-# Wait a moment for code-server to start
-sleep 5
-
-# Verify code-server is running
-if systemctl is-active --quiet code-server; then
-    log "✅ code-server service is running"
-else
-    log "❌ code-server service failed to start"
-    systemctl status code-server || true
-fi
-
-# Mount and setup data disk
-log "💾 Setting up persistent data disk..."
-# Check if data disk exists and mount it
-if [ -b "/dev/sdb" ]; then
-    log "   Found data disk /dev/sdb (150GB)"
-    
-    # Create filesystem if needed
-    if ! file -s /dev/sdb | grep -q ext4; then
-        log "   Creating ext4 filesystem on data disk..."
-        mkfs.ext4 -F /dev/sdb
+    if (( IDLE_COUNTER >= IDLE_TIMEOUT_SECONDS )); then
+      INSTANCE_NAME=$(curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name)
+      INSTANCE_ZONE=$(curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/zone | cut -d'/' -f4)
+      gcloud compute instances stop "$INSTANCE_NAME" --zone="$INSTANCE_ZONE"
+      break
     fi
     
-    # Create mount point and mount
-    mkdir -p /mnt/data
-    if ! mountpoint -q /mnt/data; then
-        log "   Mounting data disk to /mnt/data..."
-        mount /dev/sdb /mnt/data
-        
-        # Add to fstab for persistence
-        if ! grep -q "/dev/sdb" /etc/fstab; then
-            echo '/dev/sdb /mnt/data ext4 defaults 0 2' >> /etc/fstab
-            log "   Added data disk to fstab for auto-mount"
-        fi
-    fi
-    
-    # Create workspace directories on data disk
-    log "   Creating workspace structure on data disk..."
-    mkdir -p /mnt/data/jupyter/{workspace,repositories,projects,models,ollama}
-    
-    # Create symlinks from jupyter home to data disk
-    sudo -u jupyter ln -sf /mnt/data/jupyter/workspace /home/jupyter/workspace
-    sudo -u jupyter ln -sf /mnt/data/jupyter/repositories /home/jupyter/repositories
-    sudo -u jupyter ln -sf /mnt/data/jupyter/projects /home/jupyter/projects
-    sudo -u jupyter ln -sf /mnt/data/jupyter/models /home/jupyter/models
-    
-    # Move Ollama data to data disk if it exists
-    if [ -d "/home/jupyter/.ollama" ]; then
-        log "   Moving Ollama data to persistent storage..."
-        cp -r /home/jupyter/.ollama/* /mnt/data/jupyter/ollama/ 2>/dev/null || true
-    fi
-    sudo -u jupyter ln -sf /mnt/data/jupyter/ollama /home/jupyter/.ollama
-    
-    # Set proper ownership
-    chown -R jupyter:jupyter /mnt/data/jupyter/
-    
-    log "✅ Data disk setup complete - 150GB persistent storage ready"
-else
-    log "⚠️ No data disk found, using boot disk for storage"
-    # Fallback to boot disk
-    sudo -u jupyter mkdir -p /home/jupyter/workspace
-    sudo -u jupyter mkdir -p /home/jupyter/projects
-    sudo -u jupyter mkdir -p /home/jupyter/models
-fi
+    sleep $CHECK_INTERVAL
+  done
+) > /var/log/idle-shutdown.log 2>&1 &
+echo "✅ Idle shutdown monitor configured for $${IDLE_TIMEOUT_SECONDS} seconds."
 
-# Install VS Code extensions for code-server
-log "🔌 Installing VS Code extensions..."
-sudo -u jupyter mkdir -p /home/jupyter/.local/share/code-server/extensions
-
-# List of essential extensions
-extensions=(
-    "continue.continue"
-    "ms-python.python"
-    "ms-vscode.vscode-typescript-next"
-    "hashicorp.terraform"
-    "ms-vscode.vscode-docker"
-    "ms-vscode.vscode-json"
-    "redhat.vscode-yaml"
-    "eamodio.gitlens"
-    "esbenp.prettier-vscode"
-    "pkief.material-icon-theme"
-)
-
-for extension in "$${extensions[@]}"; do
-    log "🔌 Installing extension: $extension"
-    sudo -u jupyter code-server --install-extension "$extension" || log "⚠️  Failed to install $extension"
-done
-
-# Configure Continue extension
-log "🤖 Configuring Continue extension..."
-sudo -u jupyter mkdir -p /home/jupyter/.continue
-sudo -u jupyter cat << 'EOF' > /home/jupyter/.continue/config.json
-{
-  "models": [
-    {
-      "title": "Codestral (Ollama)",
-      "provider": "ollama",
-      "model": "codestral:22b",
-      "apiBase": "http://localhost:11434"
-    },
-    {
-      "title": "Mistral Nemo (Ollama)", 
-      "provider": "ollama",
-      "model": "mistral-nemo:12b",
-      "apiBase": "http://localhost:11434"
-    },
-    {
-      "title": "Llama 3.1 (Ollama)",
-      "provider": "ollama", 
-      "model": "llama3.1:8b",
-      "apiBase": "http://localhost:11434"
-    },
-    {
-      "title": "DeepSeek Coder (Ollama)",
-      "provider": "ollama",
-      "model": "deepseek-coder:6.7b", 
-      "apiBase": "http://localhost:11434"
-    }
-  ],
-  "tabAutocompleteModel": {
-    "title": "DeepSeek Coder",
-    "provider": "ollama",
-    "model": "deepseek-coder:6.7b",
-    "apiBase": "http://localhost:11434"
-  }
-}
-EOF
-
-# Set proper ownership
-chown -R jupyter:jupyter /home/jupyter/.continue
-chown -R jupyter:jupyter /home/jupyter/.config
-chown -R jupyter:jupyter /home/jupyter/.local
-
-# Create helpful scripts
-log "📜 Creating helper scripts..."
-
-# Model management script
-cat << 'EOF' > /home/jupyter/manage-models.sh
-#!/bin/bash
-# AI Model Management Script
-
-case "$1" in
-    list)
-        echo "📋 Installed models:"
-        ollama list
-        ;;
-    pull)
-        if [ -z "$2" ]; then
-            echo "❌ Please specify a model to pull"
-            echo "Usage: $0 pull <model-name>"
-            exit 1
-        fi
-        echo "📥 Pulling model: $2"
-        ollama pull "$2"
-        ;;
-    remove)
-        if [ -z "$2" ]; then
-            echo "❌ Please specify a model to remove"
-            echo "Usage: $0 remove <model-name>" 
-            exit 1
-        fi
-        echo "🗑️ Removing model: $2"
-        ollama rm "$2"
-        ;;
-    status)
-        echo "🔍 Service status:"
-        systemctl status ollama --no-pager -l
-        systemctl status code-server --no-pager -l
-        ;;
-    *)
-        echo "AI Model Management"
-        echo "Usage: $0 {list|pull|remove|status} [model-name]"
-        echo ""
-        echo "Examples:"
-        echo "  $0 list                    # List installed models"
-        echo "  $0 pull llama3.1:8b       # Pull a new model"
-        echo "  $0 remove mistral:7b      # Remove a model"
-        echo "  $0 status                 # Check service status"
-        ;;
-esac
-EOF
-
-chmod +x /home/jupyter/manage-models.sh
-chown jupyter:jupyter /home/jupyter/manage-models.sh
-
-# Create welcome message
-cat << EOF > /home/jupyter/README.md
-# 🤖 AI Development Workbench
-
-Welcome to your AI development environment! This workbench comes pre-configured with:
-
-## 🛠️ Services Running
-
-- **Ollama**: AI model server running on \`localhost:11434\`
-- **code-server**: VS Code in the browser on \`localhost:8080\`
-- **JupyterLab**: Native notebook interface
-
-## 🔗 Access URLs
-
-- JupyterLab: Access via Google Cloud Console
-- code-server: \`http://localhost:8080\` (password: configured via Terraform)
-- Ollama API: \`http://localhost:11434\`
-
-## 🤖 Pre-installed Models
-
-$$(echo '${ollama_models}' | jq -r '.[] | "- " + .')
-
-## 🔧 Management
-
-Use the helper script to manage models:
-\`\`\`bash
-./manage-models.sh list     # List models
-./manage-models.sh status   # Check services
-\`\`\`
-
-## 🎯 Continue.dev Setup
-
-The Continue extension is pre-configured and ready to use with your local Ollama models!
-
-## 📁 Directory Structure
-
-- \`~/workspace\` - Your main development workspace (150GB persistent data disk)
-- \`~/repositories\` - Git repositories and source code
-- \`~/projects\` - Additional projects directory  
-- \`~/models\` - Custom model storage
-- \`~/.ollama\` - AI models storage (persistent)
-- \`~/.continue\` - Continue extension configuration
-
-## 💾 Storage Layout
-
-- **Boot Disk (100GB):** OS, applications, system files
-- **Data Disk (150GB):** Your code, models, workspace - all persistent!
-- **Mount Point:** \`/mnt/data\` contains your persistent data
-
-## 🔍 Logs
-
-- Setup log: \`/var/log/ai-workbench-setup.log\`
-- Ollama logs: \`sudo journalctl -u ollama -f\`
-- code-server logs: \`sudo journalctl -u code-server -f\`
-
-Enjoy your AI development environment! 🚀
-EOF
-
-chown jupyter:jupyter /home/jupyter/README.md
-
-# Final status check
-log "🔍 Final status check..."
-if systemctl is-active --quiet ollama; then
-    log "✅ Ollama service is running"
-else
-    log "❌ Ollama service is not running"
-fi
-
-if systemctl is-active --quiet code-server; then
-    log "✅ code-server service is running"
-else
-    log "❌ code-server service is not running"
-fi
-
-# Create completion marker
-touch /var/log/ai-workbench-setup-complete
-chown jupyter:jupyter /var/log/ai-workbench-setup-complete
-
-log "🎉 AI Workbench setup completed successfully!"
-log "📋 Access information:"
-log "   - JupyterLab: Use the proxy URI from the Google Cloud Console"
-log "   - code-server: http://localhost:8080 (via SSH tunnel)"
-log "   - Ollama API: http://localhost:11434 (via SSH tunnel)"
-log ""
-log "🔗 SSH tunnel command:"
-log "   gcloud compute ssh --zone=$(curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/zone | cut -d/ -f4) --project=$(curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/project/project-id) $(curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/name) -- -L 8080:localhost:8080 -L 11434:localhost:11434 -N"
-
-echo "Setup completed at $(date)" >> /var/log/ai-workbench-setup.log
+echo "🎉 AI Development Server setup complete!"

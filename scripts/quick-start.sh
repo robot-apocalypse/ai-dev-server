@@ -44,7 +44,7 @@ echo "   User: $(gcloud auth list --filter=status:ACTIVE --format='value(account
 echo ""
 
 # Check if configuration exists
-if [ ! -f "$PROJECT_ROOT/terraform.tfvars" ] && [ ! -L "$PROJECT_ROOT/terraform.tfvars" ]; then
+if [ ! -f "$PROJECT_ROOT/terraform.tfvars" ]; then
     echo "🔧 Setting up initial configuration..."
     echo ""
     echo "Which configuration would you like to start with?"
@@ -87,11 +87,10 @@ if [ ! -f "$PROJECT_ROOT/terraform.tfvars" ] && [ ! -L "$PROJECT_ROOT/terraform.
         exit 1
     fi
     
-    # Create symlink to the chosen configuration
-    cd "$PROJECT_ROOT"
-    ln -s "terraform.tfvars.$CONFIG" terraform.tfvars
+    # Copy the chosen configuration
+    cp "$PROJECT_ROOT/terraform.tfvars.$CONFIG" "$PROJECT_ROOT/terraform.tfvars"
     
-    echo "✅ Created terraform.tfvars symlink to $CONFIG configuration"
+    echo "✅ Created terraform.tfvars with $CONFIG configuration"
     echo ""
 fi
 
@@ -101,54 +100,30 @@ USER_EMAIL=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' |
 # Update the configuration with current project and user
 echo "🔧 Updating configuration with your project details..."
 
-# Function to update config files (only works with actual files, not symlinks)
-update_config_files() {
-    local project="$1"
-    local email="$2"
-    local password="$3"
-    
-    echo "📋 Updating all terraform configuration files..."
-    
-    # Always update all terraform.tfvars.* files (ignore symlinks completely)
-    local config_files=()
-    while IFS= read -r -d '' file; do
-        config_files+=("$file")
-    done < <(find "$PROJECT_ROOT" -name "terraform.tfvars.*" -type f -print0)
-    
-    # Update each config file
-    for config_file in "${config_files[@]}"; do
-        if [ -f "$config_file" ]; then
-            echo "   Updating $(basename "$config_file")..."
-            
-            # Use appropriate sed syntax for the OS
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                # macOS
-                sed -i '' "s/your-gcp-project-id/$project/g" "$config_file"
-                sed -i '' "s/your-email@example.com/$email/g" "$config_file"
-                if [ -n "$password" ]; then
-                    sed -i '' "s/your-secure-password-here/$password/g" "$config_file"
-                fi
-            else
-                # Linux
-                sed -i "s/your-gcp-project-id/$project/g" "$config_file"
-                sed -i "s/your-email@example.com/$email/g" "$config_file"
-                if [ -n "$password" ]; then
-                    sed -i "s/your-secure-password-here/$password/g" "$config_file"
-                fi
-            fi
-        fi
-    done
-    
-    echo "✅ Updated ${#config_files[@]} configuration file(s)"
-}
+# Use a more compatible sed approach
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    sed -i '' "s/your-gcp-project-id/$CURRENT_PROJECT/g" "$PROJECT_ROOT/terraform.tfvars"
+    sed -i '' "s/your-email@example.com/$USER_EMAIL/g" "$PROJECT_ROOT/terraform.tfvars"
+else
+    # Linux
+    sed -i "s/your-gcp-project-id/$CURRENT_PROJECT/g" "$PROJECT_ROOT/terraform.tfvars"
+    sed -i "s/your-email@example.com/$USER_EMAIL/g" "$PROJECT_ROOT/terraform.tfvars"
+fi
 
 # Prompt for password
 echo ""
 read -s -p "🔐 Set a password for code-server access: " CODE_SERVER_PASSWORD
 echo ""
 
-# Update all configuration files
-update_config_files "$CURRENT_PROJECT" "$USER_EMAIL" "$CODE_SERVER_PASSWORD"
+# Update password in config
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    sed -i '' "s/your-secure-password-here/$CODE_SERVER_PASSWORD/g" "$PROJECT_ROOT/terraform.tfvars"
+else
+    # Linux
+    sed -i "s/your-secure-password-here/$CODE_SERVER_PASSWORD/g" "$PROJECT_ROOT/terraform.tfvars"
+fi
 
 echo "✅ Configuration updated successfully"
 echo ""
@@ -157,16 +132,8 @@ echo ""
 echo "📋 Current Configuration:"
 echo "   Project: $CURRENT_PROJECT"  
 echo "   User: $USER_EMAIL"
-
-# Get config details from actual file (handle symlinks)
-CONFIG_FILE="$PROJECT_ROOT/terraform.tfvars"
-if [ -L "$CONFIG_FILE" ]; then
-    # If it's a symlink, read the target file
-    CONFIG_FILE="$PROJECT_ROOT/$(readlink "$CONFIG_FILE")"
-fi
-
-echo "   Machine: $(grep '^machine_type' "$CONFIG_FILE" | cut -d'"' -f2 2>/dev/null || echo 'Unknown')"
-GPU_TYPE=$(grep '^accelerator_type' "$CONFIG_FILE" | cut -d'"' -f2 2>/dev/null | grep -v '^[[:space:]]*$' || echo '')
+echo "   Machine: $(grep '^machine_type' "$PROJECT_ROOT/terraform.tfvars" | cut -d'"' -f2)"
+GPU_TYPE=$(grep '^accelerator_type' "$PROJECT_ROOT/terraform.tfvars" | cut -d'"' -f2 || echo '')
 if [ -z "$GPU_TYPE" ]; then
     echo "   GPU: None"
 else

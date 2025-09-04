@@ -1,19 +1,14 @@
 #!/bin/bash
-set -euo pipefail
-
-# Disable unbound variable checking for command line arguments
-set +u
-
-# Configuration switching script for AI Development Server
+# Fixed configuration switching script for AI Development Server
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Available configurations
 CONFIGS=(
-    "cpu-only:CPU-only (n1-standard-8, no GPU) - ~$120/month for 8 hours/day"
-    "gpu-t4:T4 GPU (n1-standard-8 + T4) - ~$200/month for 8 hours/day"
-    "gpu-l4:L4 GPU (n1-standard-16 + L4) - ~$350/month for 8 hours/day"
+    "cpu-only:CPU-only (n1-standard-8, no GPU) - ~\$120/month for 8 hours/day"
+    "gpu-t4:T4 GPU (n1-standard-8 + T4) - ~\$200/month for 8 hours/day"
+    "gpu-l4:L4 GPU (n1-standard-16 + L4) - ~\$350/month for 8 hours/day"
 )
 
 show_usage() {
@@ -34,9 +29,13 @@ show_usage() {
     echo "Current configuration:"
     if [ -f "$PROJECT_ROOT/terraform.tfvars" ]; then
         if [ -L "$PROJECT_ROOT/terraform.tfvars" ]; then
-            current_link=$(readlink "$PROJECT_ROOT/terraform.tfvars")
-            current_config=$(basename "$current_link" | sed 's/terraform.tfvars.//')
-            echo "  Active: $current_config"
+            current_link=$(readlink "$PROJECT_ROOT/terraform.tfvars" 2>/dev/null || echo "")
+            if [ -n "$current_link" ]; then
+                current_config=$(basename "$current_link" | sed 's/terraform.tfvars.//')
+                echo "  Active: $current_config"
+            else
+                echo "  Custom configuration"
+            fi
         else
             echo "  Custom configuration (not managed by this script)"
         fi
@@ -54,6 +53,9 @@ switch_config() {
         echo "❌ Configuration '$config_name' not found!"
         echo "   Expected file: $config_file"
         echo ""
+        echo "Available configuration files:"
+        ls -la "$PROJECT_ROOT"/terraform.tfvars.* 2>/dev/null || echo "No configuration files found"
+        echo ""
         show_usage
         exit 1
     fi
@@ -70,13 +72,19 @@ switch_config() {
     echo "✅ Switched to configuration: $config_name"
     echo ""
     
-    # Show configuration details (with safer grep commands)
+    # Show configuration details (with safer commands)
     echo "📋 Configuration details:"
-    MACHINE_TYPE=$(grep '^machine_type' "$config_file" | cut -d'"' -f2 2>/dev/null || echo 'Unknown')
-    GPU_TYPE=$(grep '^accelerator_type' "$config_file" | cut -d'"' -f2 2>/dev/null | grep -v '^$' || echo 'None')
+    MACHINE_TYPE=$(grep '^machine_type' "$config_file" 2>/dev/null | cut -d'"' -f2 || echo 'Unknown')
+    GPU_TYPE=$(grep '^accelerator_type' "$config_file" 2>/dev/null | cut -d'"' -f2 | grep -v '^[[:space:]]*$' || echo 'None')
     echo "   Machine type: $MACHINE_TYPE"
     echo "   GPU: $GPU_TYPE"
-    echo "   Models: $(grep -A 10 '^ollama_models' "$config_file" 2>/dev/null | grep -o '"[^"]*"' | head -4 | tr '\n' ' ' || echo 'See config file')"
+    
+    # Show first few models safely
+    echo "   Models:"
+    grep -A 10 '^ollama_models' "$config_file" 2>/dev/null | grep -o '"[^"]*"' | head -3 | while read -r model; do
+        echo "     - $model"
+    done
+    
     echo ""
     echo "🚀 Next steps:"
     echo "   1. Update project_id and user_email in terraform.tfvars if needed"
@@ -84,24 +92,27 @@ switch_config() {
     echo "   3. Use 'make status' to check deployment"
 }
 
-# Main logic
-case "${1:-}" in
+# Main logic - handle arguments safely
+ARG1="${1:-}"
+
+case "$ARG1" in
     ""|"-h"|"--help")
         show_usage
         ;;
     *)
         # Check if the provided config is valid
-        config_name="$1"
-        valid_config=false
+        config_name="$ARG1"
+        valid_config="false"
+        
         for config in "${CONFIGS[@]}"; do
             name="${config%%:*}"
             if [ "$name" = "$config_name" ]; then
-                valid_config=true
+                valid_config="true"
                 break
             fi
         done
         
-        if [ "$valid_config" = true ]; then
+        if [ "$valid_config" = "true" ]; then
             switch_config "$config_name"
         else
             echo "❌ Invalid configuration: $config_name"

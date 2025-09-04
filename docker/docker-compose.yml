@@ -1,0 +1,78 @@
+version: "3.8"
+
+services:
+  # Ollama service for LLM hosting
+  ollama:
+    image: ollama/ollama:latest
+    pull_policy: always
+    container_name: ollama
+    restart: unless-stopped
+    # Exposing the port is useful for direct debugging on the VM, and for the healthcheck.
+    ports:
+      - "11434:11434"
+    volumes:
+      # Use a named volume that binds to a specific path on the host's data disk.
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # Use 'all' to be flexible for any future machine types.
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - ai-network
+
+  # Code Server (VS Code in browser)
+  code-server:
+    image: codercom/code-server:latest
+    container_name: code-server
+    restart: unless-stopped
+    # Standardize on port 3000 to match your Makefile and outputs.tf
+    ports:
+      - "3000:8080"
+    volumes:
+      # This named volume now correctly points to the data disk.
+      - code_server_data:/home/coder/project
+      # The config file is now created by startup.sh, so we mount that specific file.
+      - /opt/ai-dev-server/code-server-config.yaml:/home/coder/.config/code-server/config.yaml
+    environment:
+      - PASSWORD=${password_placeholder}
+      - SUDO_PASSWORD=${password_placeholder}
+    # User is not needed, code-server handles this. Let it run as root inside for simplicity.
+    networks:
+      - ai-network
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+# Define top-level volumes that bind to our actual data disk mount point
+volumes:
+  ollama_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      # CORRECTED: Path updated to the real mount point
+      device: /home/jupyter/ollama
+
+  code_server_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      # CORRECTED: Path updated to the real mount point
+      device: /home/jupyter/code-server
+
+networks:
+  ai-network:
+    driver: bridge

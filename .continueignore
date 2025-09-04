@@ -1,0 +1,17 @@
+# Continue.dev ignore file
+# Directories and files that should be excluded from Continue's processing
+
+# Node.js / npm / yarn
+node_modules/
+
+# Terraform related cache and state files
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+.terraform.lock.hcl
+
+# Optional: ignore other generated directories
+.docker/
+
+# Misc
+.env
