@@ -60,7 +60,6 @@ if ! command -v nvidia-smi &> /dev/null; then
 else
   echo "✅ NVIDIA driver already present. Skipping installation."
 fi
-# --- END OF NEW BLOCK ---
 
 # --- 3. Configure Docker Permissions ---
 echo ">>> Configuring Docker permissions..."
@@ -122,6 +121,9 @@ done
 echo "✅ Model downloads initiated in the background."
 
 # --- 7. Start Idle Shutdown Monitor ---
+echo ">>> Installing bc..."
+sudo apt-get update && sudo apt-get install -y bc
+echo "✅ bc installed."
 # This variable is from Terraform, so it is NOT escaped.
 IDLE_TIMEOUT_SECONDS="${idle_shutdown_timeout}"
 (
