@@ -10,7 +10,7 @@ cost_center  = "ai-development"
 
 # L4 GPU instance (latest gen, best price/performance)
 machine_type = "g2-standard-16"
-accelerator_type  = "projects/development-436501/zones/us-central1-a/acceleratorTypes/nvidia-l4"
+accelerator_type  = "nvidia-l4"
 accelerator_count = 1
 
 # Storage
@@ -27,10 +27,9 @@ code_server_password = "ianiscool"
 # Full models + larger models with L4
 ollama_models = [
   "codestral:22b",
-  "mistral-nemo:12b", 
+  "nomic-embed-text",
   "llama3.1:8b",
-  "llama3.1:70b-q4_0",
-  "deepseek-coder:33b-q4_0"
+  "gpt-oss:20b"
 ]
 
 force_destroy_bucket = false

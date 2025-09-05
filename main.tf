@@ -123,8 +123,15 @@ resource "google_compute_instance" "ai_instance" {
     device_name = "data-disk"
   }
 
-  # NOTE: The guest_accelerator block is removed because the g2-standard machine family
-  # includes the L4 GPU by default and will error if you try to attach it again.
+
+
+  dynamic "guest_accelerator" {
+    for_each = !startswith(var.machine_type, "g2") && var.accelerator_type != "" ? [1] : []
+    content {
+      type  = var.accelerator_type
+      count = var.accelerator_count
+    }
+  }
 
   scheduling {
     on_host_maintenance = "TERMINATE"
@@ -142,12 +149,12 @@ resource "google_compute_instance" "ai_instance" {
   }
 
   metadata = {
-    "enable-oslogin"      = "TRUE"
-    "install-gpu-driver"  = "True"
-    "startup-script"      = templatefile("${path.module}/scripts/startup.sh", {
-      user_email              = var.user_email
-      ollama_models           = jsonencode(var.ollama_models)
-      idle_shutdown_timeout   = var.idle_shutdown_timeout * 60,
+    "enable-oslogin"     = "TRUE"
+    "install-gpu-driver" = "True"
+    "startup-script" = templatefile("${path.module}/scripts/startup.sh", {
+      user_email            = var.user_email
+      ollama_models         = jsonencode(var.ollama_models)
+      idle_shutdown_timeout = var.idle_shutdown_timeout * 60,
 
       # Render the compose file first, injecting the password directly into it
       docker_compose_content = templatefile("${path.module}/docker/docker-compose.yml", {
@@ -174,10 +181,10 @@ resource "google_compute_instance" "ai_instance" {
 
 # Data disk for models and persistent storage
 resource "google_compute_disk" "data_disk" {
-  name   = "${var.project_name}-instance-data"
-  type   = "pd-ssd"
-  zone   = var.zone
-  size   = var.data_disk_size_gb
+  name = "${var.project_name}-instance-data"
+  type = "pd-ssd"
+  zone = var.zone
+  size = var.data_disk_size_gb
   labels = {
     environment = var.environment
   }
@@ -225,7 +232,7 @@ resource "google_compute_router_nat" "nat" {
   region                             = google_compute_router.router.region
   source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
 
-  nat_ip_allocate_option             = "AUTO_ONLY"
+  nat_ip_allocate_option = "AUTO_ONLY"
 
   subnetwork {
     name                    = google_compute_subnetwork.ai_subnet.id

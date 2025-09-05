@@ -1,6 +1,6 @@
 # AI Development Server - Google Cloud GCE Instance
 
-.PHONY: help init plan apply destroy status tunnel ssh logs clean setup
+.PHONY: help init plan apply destroy status tunnel ssh logs ollama-logs clean setup remove-models
 
 # Default target
 help: ## Show this help message
@@ -64,10 +64,18 @@ tunnel: ## Create SSH tunnel for local development
 		echo "❌ No instance found. Run 'make apply' first."; \
 	fi
 
-logs: ## Show the VM startup script logs
+logs: ## Follow the VM startup script logs in real-time
 	@if terraform output ssh_command >/dev/null 2>&1; then \
-		echo "📋 Fetching startup script logs from instance..."; \
-		$$(terraform output -raw ssh_command) -- 'sudo journalctl -u google-startup-scripts.service -n 100 --no-pager'; \
+		echo "📋 Following startup script logs from instance... (Press Ctrl+C to stop)"; \
+		$$(terraform output -raw ssh_command) -- 'sudo journalctl -u google-startup-scripts.service -f --no-pager'; \
+	else \
+		echo "❌ No instance found. Run 'make apply' first."; \
+	fi
+
+ollama-logs: ## Follow the logs of the ollama container in real-time
+	@if terraform output ssh_command >/dev/null 2>&1; then \
+		echo "📋 Following ollama container logs from instance... (Press Ctrl+C to stop)"; \
+		$$(terraform output -raw ssh_command) -- 'docker logs -f ollama'; \
 	else \
 		echo "❌ No instance found. Run 'make apply' first."; \
 	fi
@@ -104,20 +112,17 @@ install-model: ## Install a specific Ollama model (usage: make install-model MOD
 		echo "❌ No instance found. Run 'make apply' first."; \
 	fi
 
-config-l4: ## Switch to L4 GPU configuration
-	@./scripts/switch-config.sh gpu-l4
-
-clean-models: ## Remove all installed Ollama models from the instance
+remove-models: ## Remove all installed Ollama models
 	@if terraform output ssh_command >/dev/null 2>&1; then \
-		echo "🗑️  Removing all Ollama models from the instance..."; \
-		$$(terraform output -raw ssh_command) -- "docker exec ollama ollama list | tail -n +2 | awk '{print $$1}' | xargs -r -I {} docker exec ollama ollama rm {}"; \
+		echo "🗑️ Removing all installed Ollama models..."; \
+		$$(terraform output -raw ssh_command) -- 'docker exec ollama ollama list | tail -n +2 | awk '\''{print $$1}'\'' | xargs -I {} docker exec ollama ollama rm {}'; \
 		echo "✅ All models removed."; \
 	else \
 		echo "❌ No instance found. Run 'make apply' first."; \
 	fi
-	rm -rf .terraform/
-	rm -f .terraform.lock.hcl
-	rm -f terraform.tfstate.backup
+
+config-l4: ## Switch to L4 GPU configuration
+	@./scripts/switch-config.sh gpu-l4
 
 restart-services: ## Restart the Docker Compose services on the instance
 	@if terraform output ssh_command >/dev/null 2>&1; then \
@@ -135,6 +140,12 @@ service-status: ## Check status of Docker Compose services on the instance
 	else \
 		echo "❌ No instance found. Run 'make apply' first."; \
 	fi
+
+rerun-startup: ## Push the latest startup.sh to the VM and re-run it
+	@echo " M Updating VM metadata with the latest startup script..."
+	@terraform apply -auto-approve -target=google_compute_instance.ai_instance
+	@echo " M Triggering the startup script on the VM..."
+	@$$(terraform output -raw ssh_command) -- 'sudo google_metadata_script_runner startup'
 
 update-app: ## Copy the latest docker-compose.yml and redeploy the app stack
 	@echo " M Copying latest docker-compose.yml to the instance..."

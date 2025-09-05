@@ -57,6 +57,7 @@ if ! command -v nvidia-smi &> /dev/null; then
   # It automatically runs non-interactively when called from another script.
   /opt/deeplearning/install-driver.sh
   echo "✅ NVIDIA driver installed."
+  # sudo reboot -h #Not sure we need this
 else
   echo "✅ NVIDIA driver already present. Skipping installation."
 fi
@@ -81,9 +82,11 @@ echo "✅ Docker Compose installed."
 echo ">>> Installing Google Cloud Ops Agent for monitoring..."
 # Check if the agent is already installed to make this script safe to re-run.
 if ! command -v google-cloud-ops-agent &> /dev/null; then
-  # The '--quiet' flag suppresses the normal output but will still show errors if it fails.
   curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
-  bash add-google-cloud-ops-agent-repo.sh --also-install --quiet
+  # CORRECTED: Removed the invalid '--quiet' flag
+  bash add-google-cloud-ops-agent-repo.sh --also-install
+  # Clean up the downloaded installer
+  rm add-google-cloud-ops-agent-repo.sh
   echo "✅ Ops Agent installed."
 else
   echo "✅ Ops Agent already present. Skipping installation."
@@ -122,7 +125,7 @@ echo "✅ Model downloads initiated in the background."
 
 # --- 7. Start Idle Shutdown Monitor ---
 echo ">>> Installing bc..."
-sudo apt-get update && sudo apt-get install -y bc
+sudo apt-get update && sudo apt-get install -y bc jq
 echo "✅ bc installed."
 # This variable is from Terraform, so it is NOT escaped.
 IDLE_TIMEOUT_SECONDS="${idle_shutdown_timeout}"
